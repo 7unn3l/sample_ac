@@ -3,11 +3,13 @@ use axum::{response::IntoResponse, routing::post, Json, Router};
 use axum_server::tls_rustls::RustlsConfig;
 use kube::{
     core::admission::{AdmissionResponse, AdmissionReview},
-    CustomResource
+    CustomResource,
+    api::DynamicObject
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::{fmt::Write, net::SocketAddr, path::PathBuf};
+use serde_json::Value;
 
 #[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
 struct PortEntry {
@@ -23,6 +25,11 @@ struct ContainerType {
     name: String,
     image: String,
     ports: Vec<PortEntry>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, JsonSchema)]
+struct SecContext{
+    privileged: Option<bool>,
 }
 
 #[derive(CustomResource, Debug, Serialize, Deserialize, Clone, JsonSchema)]
@@ -60,11 +67,30 @@ pub async fn main() {
         .unwrap();
 }
 
+fn get_value(obj: &Value, path: &str) -> Option<Value>{
+
+    let mut obj = obj.clone();
+    for part in path.split("."){
+        
+       match obj{
+           Value::Object(m) =>{
+               obj = m.get(part).unwrap().clone();
+           }
+           _ => {panic!("not an object")}
+       } 
+
+    }
+
+    return Some(obj)
+}
+
 async fn validate(
-    Json(mut review): Json<AdmissionReview<BaseAdmissionReview>>,
+    Json(mut review): Json<AdmissionReview<DynamicObject>>,
 ) -> impl IntoResponse {
     // the request might have AdmissgonReview<BaseAdmissionReview>
     // request.request is the "review" portion
+    
+    println!("validating..");
 
     let request = review.request.as_ref().unwrap();
     let mut err = String::new();
@@ -75,12 +101,40 @@ async fn validate(
     }
 
     // in the object portion, there is the spec portion.
-    let object = request.object.as_ref().unwrap();
+    let object = request.object.as_ref().unwrap().data.as_object().unwrap();
 
-    let mut ports_seen: Vec<u16> = vec![];
+    let object = serde_json::Value::Object(object.clone());
+   
+    match get_value(&object,"spec.containers"){
+        Some(containers) => {
+            for container in containers.as_array().unwrap(){
+                match get_value(container,"securityContext.privileged"){
+                    Some(privileged) => {
+                        if privileged.as_bool().unwrap(){
+                            write!(err, "container {} is privileged,", container["name"]).ok();
+                        }
+                    }
+                    None => {}
+                }
+            }
+        }
+        None => {
+            println!("no containers");
+            write!(err, "no containers").ok();
+        }
+    }
 
+
+    /*
     for container in object.spec.containers.iter() {
         println!("processing container {}", container.name);
+
+        /*if container.securityContext.privileged.is_some(){
+            if container.securityContext.privileged.unwrap() {
+                write!(err, "container {} is privileged\n", container.name).ok();
+            }
+        }
+        */
 
         for portent in container.ports.iter() {
             match &portent.name {
@@ -115,8 +169,11 @@ async fn validate(
             }
         }
     }
+    */
     // ready to set response in AdmissionReview
     let mut response = AdmissionResponse::from(request);
+
+    println!("err: {}", err);
 
     response.allowed = err.is_empty();
     response.result.message = err;
