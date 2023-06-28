@@ -1,1 +1,1 @@
-sudo target/debug/sample_ad
+cargo build && sudo target/debug/sample_ad

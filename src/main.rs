@@ -104,8 +104,46 @@ async fn validate(
     let object = request.object.as_ref().unwrap().data.as_object().unwrap();
 
     let object = serde_json::Value::Object(object.clone());
+
+    /*
+
+    */
+
+    // check that every speaker can talk
+
+    // is the talk accepted?
+
+    // is the talk in the schedule?
+
+    let mut all_ready = true;
+
+    match get_value(&object,"spec.speaker"){
+        Some(speakers) => {
+            for speaker in speakers.as_array().unwrap(){
+                println!("processing speaker: {}", speaker);
+
+                match get_value(&speaker,"canTalk"){
+                    Some(canTalk) => {
+                        if canTalk.as_bool().unwrap(){
+                            println!("speaker can talk");
+                        }
+                    }
+                    None => {
+                        println!("speaker cannot talk");
+                        all_ready = false;
+                    }
+                }
+            }
+        }
+        None => {}
+
+    }
+
+    if !all_ready{
+        write!(err, "not all speakers are ready").ok();
+    }
    
-    match get_value(&object,"spec.containers"){
+    /*match get_value(&object,"spec.containers"){
         Some(containers) => {
             for container in containers.as_array().unwrap(){
                 match get_value(container,"securityContext.privileged"){
@@ -123,53 +161,8 @@ async fn validate(
             write!(err, "no containers").ok();
         }
     }
-
-
-    /*
-    for container in object.spec.containers.iter() {
-        println!("processing container {}", container.name);
-
-        /*if container.securityContext.privileged.is_some(){
-            if container.securityContext.privileged.unwrap() {
-                write!(err, "container {} is privileged\n", container.name).ok();
-            }
-        }
-        */
-
-        for portent in container.ports.iter() {
-            match &portent.name {
-                Some(pname) => {
-                    if pname.len() >= 10 {
-                        write!(
-                            err,
-                            "container {} has portname thats too long: {pname}\n",
-                            container.name
-                        )
-                        .ok();
-                    }
-                }
-
-                None => {}
-            }
-
-            match portent.containerPort {
-                Some(port) => {
-                    if ports_seen.contains(&port) {
-                        write!(
-                            err,
-                            "port {} of container {} already seen\n",
-                            port, container.name
-                        )
-                        .ok();
-                    } else {
-                        ports_seen.push(port)
-                    }
-                }
-                None => {}
-            }
-        }
-    }
     */
+    
     // ready to set response in AdmissionReview
     let mut response = AdmissionResponse::from(request);
 
